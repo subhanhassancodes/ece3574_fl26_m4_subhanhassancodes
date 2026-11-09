@@ -2,8 +2,13 @@
 
 #include <QMainWindow>
 
+#include "aiws/corpus_builder.hpp"
 #include "aiws/processing_core.hpp"
+#include "aiws/remote_add_server.hpp"
 #include "aiws/workspace.hpp"
+
+#include <cstdint>
+#include <memory>
 
 class QLabel;
 class QPushButton;
@@ -65,6 +70,15 @@ public:
      */
     void set_build_delay_ms(int ms_per_document);
 
+    /**
+     * @brief Starts accepting aiws_send requests on socket_path (CR-1).
+     * @return false if the socket cannot be bound.
+     */
+    bool start_remote_add(const QString& socket_path);
+
+    /** @brief Number of background builds not yet handled; used by tests. */
+    std::size_t active_builds() const noexcept;
+
     // Everything below this line is the M3 design. In M4 it is yours to
     // change: add, remove, or redesign private members, slots, and helpers.
 
@@ -72,8 +86,14 @@ private slots:
     /** @brief Handles a request to select and add a document to the workspace. */
     void add_document();
 
-    /** @brief Rebuilds the processing corpus from the current non-empty workspace. */
+    /** @brief Starts a background build of the current non-empty workspace. */
     void build_corpus();
+
+    /**
+     * @brief Accepts or drops a finished background build.
+     * @param job_id Job reported by CorpusBuilder::build_finished().
+     */
+    void build_finished(quint64 job_id);
 
     /**
      * @brief Updates the selected-document display for the requested workspace row.
@@ -142,10 +162,19 @@ private:
      */
     void clear_processing_outputs();
 
+    /** @brief Records a workspace change so builds started earlier are stale. */
+    void workspace_changed();
+
     Workspace workspace_;
     ProcessingCore processing_core_;
     bool corpus_current_{false};
     ExitCallback exit_callback_{nullptr};
+
+    std::uint64_t workspace_version_{0};
+    bool building_{false};
+    int build_delay_ms_{0};
+    std::unique_ptr<CorpusBuilder> builder_;
+    std::unique_ptr<RemoteAddServer> remote_server_;
 
     WorkspaceWidget* workspace_widget_{nullptr};
     SearchWidget* search_widget_{nullptr};
