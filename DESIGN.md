@@ -41,10 +41,12 @@ I utilized Claude as an assistant for testing, debugging, reviewing documentatio
 
 ## Pair programming log
 
-- Partner:
-- Session 1 (date, start–end, whose code, what part):
-- Session 2 (date, start–end, whose code, what part):
-- Role swaps:
-- My contribution as navigator:
-- My partner's contribution as navigator:
-- What worked best:
+## Pair programming log
+
+- Partner: Shray Gupta 
+- Session 1: Nov 8, 9:30–10:15 pm, my code. Walked through CorpusBuilder::run() and MainWindow::build_finished() (the workspace version check), then RemoteAddServer::handle_client() and the message format.
+- Session 2: Nov 8, 10:15–11:00 pm, Shray's code. Reviewed BuildJob, MainWindow::finishBuild() and its fault switches, and why RemoteAddServer is declared after MainWindow in main.cpp.
+- Role swaps: Session 1: I drove 9:30–9:52 pm, Shray drove 9:52–10:15 pm. Session 2: Shray drove 10:15–10:37 pm, I drove 10:37–11:00 pm.
+- My contribution as navigator: I asked whether AIWS_FAULT_ACCEPT_STALE is really caught, since a cancelled stale job returns nullptr and is dropped either way. Shray showed his stale tests use no delay so the worker always finishes a real core, and we built with the macro to confirm the tests fail.
+- My partner's contribution as navigator: Shray asked what happens if an older build finishes after a newer one. We ran newer_build_wins_over_older to confirm the older result is dropped by the version check.
+- What worked best: The driver explaining each part out loud while the navigator asked "what if" questions about timing, then checking the answer by running a test.
