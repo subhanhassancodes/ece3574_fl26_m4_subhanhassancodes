@@ -1,0 +1,71 @@
+﻿commit 11a1d579f70050f048b854e93634027d8f6f9490
+Author: subhanhassancodes <subhanhassan999@gmail.com>
+Date:   2026-11-08 23:06:46 -0500
+
+    m4 final
+
+ CMakeLists.txt                     |  24 ++-
+ DESIGN.md                          |  49 ++++-
+ dockerfile                         |  32 +++
+ include/aiws/corpus_builder.hpp    |  83 +++++++
+ include/aiws/gui/main_window.hpp   |  33 ++-
+ include/aiws/remote_add_server.hpp |  57 +++++
+ include/aiws/remote_protocol.hpp   |  41 ++++
+ src/chunker.cpp                    |  59 +++++
+ src/context_builder.cpp            |  29 +++
+ src/context_widget.cpp             | 124 +++++++++++
+ src/corpus_builder.cpp             | 104 +++++++++
+ src/corpus_index.cpp               |  72 +++++++
+ src/document.cpp                   |  14 ++
+ src/main.cpp                       |  92 ++++++++
+ src/main_window.cpp                | 430 +++++++++++++++++++++++++++++++++++++
+ src/processing_core.cpp            | 106 +++++++++
+ src/remote_add_server.cpp          | 134 ++++++++++++
+ src/remote_protocol.cpp            | 102 +++++++++
+ src/retrieval_engine.cpp           |  86 ++++++++
+ src/search_result_model.cpp        | 100 +++++++++
+ src/search_widget.cpp              | 182 ++++++++++++++++
+ src/term_inspector_widget.cpp      | 111 ++++++++++
+ src/text_processor.cpp             | 116 ++++++++++
+ src/workspace.cpp                  |  17 ++
+ src/workspace_widget.cpp           | 124 +++++++++++
+ tests/student_tests.cpp            | 327 +++++++++++++++++++++++++++-
+ tools/aiws_send.cpp                | 106 +++++++++
+ 27 files changed, 2744 insertions(+), 10 deletions(-)
+
+commit eea38066e9d53ce6a3b75ec8a4bf1ec1fd2dde44
+Author: subhanhassancodes <subhanhassan999@gmail.com>
+Date:   2026-10-28 23:04:09 -0400
+
+    DESIGN_NOTE.md
+
+ .gitignore                                 |   3 +
+ CMakeLists.txt                             |  57 +++++++++++
+ DESIGN.md                                  |   3 +
+ DESIGN_NOTE.md                             |  38 +++++++
+ STARTER_README.pdf                         | Bin 0 -> 39600 bytes
+ data/public/doc_ai.txt                     |   3 +
+ data/public/doc_retrieval.txt              |   3 +
+ data/public/doc_systems.txt                |   3 +
+ data/public/queries.txt                    |   4 +
+ include/aiws/chunker.hpp                   |  25 +++++
+ include/aiws/chunking_strategy.hpp         |  18 ++++
+ include/aiws/context_builder.hpp           |  13 +++
+ include/aiws/context_strategy.hpp          |  17 +++
+ include/aiws/corpus_index.hpp              |  36 +++++++
+ include/aiws/document.hpp                  |  22 ++++
+ include/aiws/gui/context_widget.hpp        |  75 ++++++++++++++
+ include/aiws/gui/main_window.hpp           | 159 +++++++++++++++++++++++++++++
+ include/aiws/gui/resettable.hpp            |  22 ++++
+ include/aiws/gui/search_result_model.hpp   |  84 +++++++++++++++
+ include/aiws/gui/search_widget.hpp         | 105 +++++++++++++++++++
+ include/aiws/gui/term_inspector_widget.hpp |  81 +++++++++++++++
+ include/aiws/gui/workspace_widget.hpp      | 101 ++++++++++++++++++
+ include/aiws/processing_core.hpp           |  53 ++++++++++
+ include/aiws/processing_types.hpp          |  38 +++++++
+ include/aiws/retrieval_engine.hpp          |  18 ++++
+ include/aiws/retrieval_strategy.hpp        |  20 ++++
+ include/aiws/text_processor.hpp            |  29 ++++++
+ include/aiws/workspace.hpp                 |  19 ++++
+ tests/student_tests.cpp                    |   2 +
+ 29 files changed, 1051 insertions(+)
