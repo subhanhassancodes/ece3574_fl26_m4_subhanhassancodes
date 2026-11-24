@@ -1,52 +1,52 @@
-# M4 Decision Record
+# M5 Design
 
-## 1. Threads and ownership
+## 1. M4 fixes
 
-| Thread | Runs |
-|---|---|
-| GUI | `MainWindow`, all widgets, `CorpusBuilder::start/take/job_done`, `RemoteAddServer::start/stop/deliver` |
-| build worker (one per job) | `CorpusBuilder::run` |
-| IPC server | `RemoteAddServer::serve/handle_client` |
+None. My M4 and CR-1 tests all still passed. `CorpusBuilder`, which started a thread per build, is replaced by `BuildWorker`.
 
-`MainWindow` owns `builder_` and `remote_server_` as `unique_ptr`s. `CorpusBuilder` owns each `BuildJob` (thread, future, cancel flag) in `jobs_`. `take()` joins a job after its `job_done`, which is the worker's last action. `~CorpusBuilder` sets every `cancel` and joins all jobs. `~RemoteAddServer` calls `stop()`, which joins and removes the socket file. `remote_server_` is declared last, so it stops first.
+## 2. Threads and shared data
 
-**Constraint 5.** Shared mutable data: `BuildJob::cancel` (GUI writes, worker reads) and `RemoteAddServer::stop_` (GUI writes, server reads) are `std::atomic<bool>`. The promise/future state (worker sets, GUI gets) is synchronized by the standard library. Workers get a copy of the `Workspace`. `version`, `listen_fd_` and `socket_path_` are written before the thread starts and never change. Results reach the GUI only through queued `QMetaObject::invokeMethod`.
+There are three threads:
 
-## 2. How a finished build is judged valid
+- **GUI thread:** `MainWindow`, the widgets, every `CorpusState` object, and the `BuildWorker` calls `submit()`, `cancel()`, `take()` and the destructor.
+- **Build worker:** created in the `BuildWorker` constructor and joined in its destructor. It only runs `run()` and `build()`.
+- **IPC thread:** `RemoteAddServer::serve()`, the same as in M4.
 
-`workspace_version_` goes up in `workspace_changed()` on every Add and Reset. `build_corpus()` passes the current version to `CorpusBuilder::start()`. `MainWindow::build_finished()` accepts a result only if `result.version == workspace_version_`. A stale result, success or failure, is dropped. A valid one is move-assigned into `processing_core_`, or its error is shown as "Build failed". Build is disabled while a build for the current version runs.
+The GUI and worker threads share `pending_`, `done_`, `wanted_` and `stop_` in `BuildWorker`. All four are only read or written while holding `mutex_`. The worker waits on the condition variable `wake_` with a predicate that checks them, so a notify can't get lost. A request carries its own `Workspace` copy and the finished `ProcessingCore` is moved out through `done_`, so nothing else is shared. `RemoteAddServer::stop_` is a `std::atomic<bool>`, and its fd and path never change after its thread starts, as in M4.
 
-## 3. Changes since the checkpoint
+## 3. States
 
-- Add and Reset no longer cancel the running job; only `~CorpusBuilder` cancels. The version check is the single decision point and the extra work is bounded.
-- Build failure no longer opens a modal `QMessageBox`; it shows in the corpus and status labels, so nothing blocks the GUI or remote adds.
-- Notification uses `invokeMethod` by name with `Q_ARG` because Qt 6.2 has no functor overload with arguments.
+| State | Meaning | Add / remote add | Build | Reset | Build done | Build failed |
+|---|---|---|---|---|---|---|
+| `EmptyState` | no documents | → Unbuilt | (disabled) | → Empty | – | – |
+| `UnbuiltState` | documents, no corpus | → Unbuilt | start → Building | → Empty | – | – |
+| `BuildingState` | worker is building | cancel → Unbuilt | (disabled) | cancel → Empty | → Current | → Failed |
+| `CurrentState` | corpus matches workspace | → Unbuilt ("Out of date") | start → Building | → Empty | – | – |
+| `FailedState` | last build failed | → Unbuilt | start → Building | → Empty | – | – |
 
-## 4. CR-1 impact
+Each handler returns the next state, or `nullptr` to stay. `MainWindow::change_state()` swaps it in and calls `enter()`. Exit isn't a state change: `~MainWindow` destroys `worker_` (which joins), then the state.
 
-New: `RemoteAddServer`, `remote_protocol` (shared with `tools/aiws_send.cpp`), `MainWindow::start_remote_add()`, and the `--ipc-socket` option in `main.cpp`. `add_document()` now calls `add_document_file()`, which is also connected to `RemoteAddServer::add_requested`. Nothing else changed, since a remote add is the same workspace change as a local one.
+## 4. Trace: Reset during a long build
 
-**Message format.** One tag byte, a 4-byte big-endian length N, then N payload bytes. Request: tag `0x41` (`'A'`), payload = absolute UTF-8 path, which `aiws_send` builds from its working directory. Reply: tag `0x00` (ok, N = 0) or `0x01` (rejected, payload = UTF-8 reason). N ≤ 65536. The length prefix handles spaces, UTF-8 and newlines; `read_message()` loops until all bytes arrive (5 s limit). The server checks readability and replies before posting to the GUI. It polls every 100 ms, so it stops within 500 ms. SIGINT/SIGTERM quit normally.
+Run with `--build-delay-ms 500`:
 
-## 5. Fault switches
+1. **GUI:** Build Corpus → `build_corpus()` → `UnbuiltState::build_requested()` → `start_build()` → `BuildWorker::submit()`. This sets `wanted_` to the new id, stores `pending_` and notifies. The state becomes `BuildingState`.
+2. **Worker:** `run()` wakes up and takes the request. `build()` waits in `wake_.wait_for(500 ms, should_stop)` for each document.
+3. **GUI:** Reset → `reset_application()` → `BuildingState::reset()` → `cancel_build()` → `BuildWorker::cancel()`. This sets `wanted_ = 0` and notifies. The state becomes `EmptyState`.
+4. **Worker:** `wait_for` wakes right away because `should_stop()` is now true. `run()` sees the id is no longer wanted, throws the result away, and goes back to waiting.
+5. **GUI:** the next Build starts immediately; the worker isn't stuck on the old one.
 
-| Macro | Location | Caught by |
-|---|---|---|
-| `AIWS_FAULT_ACCEPT_STALE` | `MainWindow::build_finished()` | `build_is_stale_after_add`, `build_is_stale_after_reset`, `newer_build_wins_over_older` |
-| `AIWS_FAULT_LOSE_FAILURE` | `CorpusBuilder::run()` | `failed_build_is_reported` |
+## 5. Decisions
 
-## 6. AI-use disclosure
+1. **Build during a build:** not allowed. `BuildingState::can_build()` returns false, so the button is disabled, and `build_requested()` does nothing in that state anyway.
+2. **Remote add mid-build:** treated exactly like Add Document. `add_document_file()` calls `BuildingState::workspace_changed()`, which cancels the build. The user sees the new document, the corpus shows "Not built" (or "Out of date"), and Build Corpus is enabled again.
+3. **Shared data:** four values under one mutex: the waiting request, the wanted id, the stop flag and the finished result. Each one carries a different message between the threads, so none can be dropped. They're under one lock so a cancel can't happen between the worker checking `should_stop()` and starting to wait. 
+
+## 6. Fault switches
+
+- `AIWS_FAULT_NO_CANCEL` is in `BuildWorker::should_stop()`: it only checks `stop_`, so an unwanted build keeps running. `reset_stops_long_build`, `add_stops_long_build` and `remote_add_mid_build_cancels_it` catch it.
+- `AIWS_FAULT_SILENT_SHUTDOWN` is in `~BuildWorker()`: it skips `notify_all()`, so an idle worker never wakes up and Exit hangs. `exit_when_idle_is_quick` catches it, then the test run hits the 30-second CTest timeout.
+
+## 7. AI-use disclosure
 
 I utilized Claude as an assistant for testing, debugging, reviewing documentation, and getting guidance on better approaches and code structure when needed.
-
-## Pair programming log
-
-## Pair programming log
-
-- Partner: Shray Gupta 
-- Session 1: Nov 8, 9:30–10:15 pm, my code. Walked through CorpusBuilder::run() and MainWindow::build_finished() (the workspace version check), then RemoteAddServer::handle_client() and the message format.
-- Session 2: Nov 8, 10:15–11:00 pm, Shray's code. Reviewed BuildJob, MainWindow::finishBuild() and its fault switches, and why RemoteAddServer is declared after MainWindow in main.cpp.
-- Role swaps: Session 1: I drove 9:30–9:52 pm, Shray drove 9:52–10:15 pm. Session 2: Shray drove 10:15–10:37 pm, I drove 10:37–11:00 pm.
-- My contribution as navigator: I asked whether AIWS_FAULT_ACCEPT_STALE is really caught, since a cancelled stale job returns nullptr and is dropped either way. Shray showed his stale tests use no delay so the worker always finishes a real core, and we built with the macro to confirm the tests fail.
-- My partner's contribution as navigator: Shray asked what happens if an older build finishes after a newer one. We ran newer_build_wins_over_older to confirm the older result is dropped by the version check.
-- What worked best: The driver explaining each part out loud while the navigator asked "what if" questions about timing, then checking the answer by running a test.
