@@ -2,13 +2,15 @@
 
 #include <QMainWindow>
 
-#include "aiws/corpus_builder.hpp"
+#include "aiws/build_worker.hpp"
+#include "aiws/gui/corpus_state.hpp"
 #include "aiws/processing_core.hpp"
 #include "aiws/remote_add_server.hpp"
 #include "aiws/workspace.hpp"
 
 #include <cstdint>
 #include <memory>
+#include <thread>
 
 class QLabel;
 class QPushButton;
@@ -29,7 +31,7 @@ class WorkspaceWidget;
  * major GUI components, and coordinates application-wide state changes and
  * backend operations in response to component events.
  */
-class MainWindow final : public QMainWindow {
+class MainWindow final : public QMainWindow, private CorpusContext {
     Q_OBJECT
 
 public:
@@ -76,8 +78,8 @@ public:
      */
     bool start_remote_add(const QString& socket_path);
 
-    /** @brief Number of background builds not yet handled; used by tests. */
-    std::size_t active_builds() const noexcept;
+    /** @brief Id of the single build thread; used by tests. */
+    std::thread::id build_thread_id() const noexcept;
 
     // Everything below this line is the M3 design. In M4 it is yours to
     // change: add, remove, or redesign private members, slots, and helpers.
@@ -89,11 +91,8 @@ private slots:
     /** @brief Starts a background build of the current non-empty workspace. */
     void build_corpus();
 
-    /**
-     * @brief Accepts or drops a finished background build.
-     * @param job_id Job reported by CorpusBuilder::build_finished().
-     */
-    void build_finished(quint64 job_id);
+    /** @brief Takes the worker's result and passes it to the current state. */
+    void build_finished();
 
     /**
      * @brief Updates the selected-document display for the requested workspace row.
@@ -144,36 +143,24 @@ private slots:
     void exit_application();
 
 private:
-    /**
-     * @brief Updates availability of actions that depend on current application state.
-     */
     void update_action_states();
+    void change_state(std::unique_ptr<CorpusState> next);
 
-    /**
-     * @brief Marks the processing corpus as no longer current for the workspace.
-     *
-     * Processing output that depends on the previous corpus is no longer made
-     * available after invalidation.
-     */
-    void invalidate_corpus();
-
-    /**
-     * @brief Clears displayed search and context output that depends on processing state.
-     */
-    void clear_processing_outputs();
-
-    /** @brief Records a workspace change so builds started earlier are stale. */
-    void workspace_changed();
+    void start_build() override;
+    void cancel_build() override;
+    void install_corpus(std::unique_ptr<ProcessingCore> core) override;
+    void clear_outputs() override;
+    QString chunk_summary() const override;
+    void show_corpus_status(const QString& text) override;
+    void show_status(const QString& text) override;
 
     Workspace workspace_;
     ProcessingCore processing_core_;
-    bool corpus_current_{false};
     ExitCallback exit_callback_{nullptr};
-
-    std::uint64_t workspace_version_{0};
-    bool building_{false};
     int build_delay_ms_{0};
-    std::unique_ptr<CorpusBuilder> builder_;
+
+    std::unique_ptr<CorpusState> state_;
+    std::unique_ptr<BuildWorker> worker_;
     std::unique_ptr<RemoteAddServer> remote_server_;
 
     WorkspaceWidget* workspace_widget_{nullptr};
